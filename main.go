@@ -1,11 +1,14 @@
 package main
 
 import (
+	"Ceto/cgroups"
+	"Ceto/cgroups/subsystems"
 	"Ceto/container"
 	"fmt"
+	"os"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
-	"os"
 )
 
 const usage = `Ceto is a simple container runtime, Just made it for fun.`
@@ -37,6 +40,18 @@ var runCommand = cli.Command{
 			Name:  "ti",
 			Usage: "enable tty",
 		},
+		cli.StringFlag{
+			Name:  "m",
+			Usage: "memory limit",
+		},
+		cli.StringFlag{
+			Name:  "cupshare",
+			Usage: "cpushare limit",
+		},
+		cli.StringFlag{
+			Name:  "cpuset",
+			Usage: "cpuset limit",
+		},
 	},
 	Action: func(ctx *cli.Context) error {
 		if len(ctx.Args()) < 1 {
@@ -44,7 +59,12 @@ var runCommand = cli.Command{
 		}
 		cmd := ctx.Args().Get(0)
 		tty := ctx.Bool("ti")
-		Run(tty, cmd)
+		resConf := &subsystems.ResourceConfig{
+			MemoryLimit: ctx.String("m"),
+			CpuSet:      ctx.String("cpuset"),
+			CpuShare:    ctx.String("cpushare"),
+		}
+		Run(tty, cmd, resConf)
 		return nil
 	},
 }
@@ -61,11 +81,16 @@ var initCommand = cli.Command{
 	},
 }
 
-func Run(tty bool, command string) {
+func Run(tty bool, command string, res *subsystems.ResourceConfig) {
 	parent := container.NewParentProcess(tty, command)
 	if err := parent.Start(); err != nil {
 		log.Error(err)
 	}
+
+	cgroupManager := cgroups.NewCgroupManager("mydocker-cgroup")
+	defer cgroupManager.Destroy()
+	cgroupManager.Set(res)
+	cgroupManager.Apply(parent.Process.Pid)
 	parent.Wait()
 	os.Exit(-1)
 }
